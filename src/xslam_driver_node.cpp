@@ -7,23 +7,28 @@
 #include <xslam/xslam_sdk.hpp>
 #include <cmath>
 #include "frequency_counter.hpp"
+#include <nav_msgs/Odometry.h>
+#include <tf/tf.h>
 
 ros::Publisher odom_pub;
 
 void show_frame(xslam_frame*);
 
-// Display the time and the 6 dof pose in the world coordinate frame
-void show_pose(xslam_pose* pose);
 
 // Display the time and the 6 dof pose in the world coordinate frame using quaternion
 void show_pose_quaternion(xslam_pose_quaternion* pose);
 
-// Function to call for each IMU info
-void show_imu(xslam_imu* imu);
 
 void lost(float timestamp);
 
+void xslam_odom_callback();
+
 int main(int argc, char** argv) {
+
+    ros::init(argc,argv,"xslam_node");
+    ros::NodeHandle nh;
+
+    odom_pub = nh.advertise<nav_msgs::Odometry>("xslam/odom",10000);
 
     xslam_parse_arguments(argc, argv);
 
@@ -33,14 +38,9 @@ int main(int argc, char** argv) {
 
     xslam_disp_version();
 
-    // set the function to call for each 6 dof pose, the protopy must be "(void)(xslam_pose*)"
-    xslam_6dof_callback(&show_pose);
 
     // set the function to call for each 6 dof pose with quaternion format
     xslam_6dof_quaternion_callback(&show_pose_quaternion);
-
-    // set the IMU callback
-    xslam_imu_callback(&show_imu);
 
     // set the lost callback
     xslam_lost_callback(&lost);
@@ -64,25 +64,6 @@ int main(int argc, char** argv) {
 
 void show_frame(xslam_frame*){}
 // Display the time and the 6 dof pose in the world coordinate frame
-void show_pose(xslam_pose* pose)
-{
-    static FrequencyCounter fc;
-    static int cnt = 0;
-
-    fc.tic();
-
-    if(cnt++ % 300 == 0)
-    {
-        double fps = fc.fps();
-        double distance_to_origin = std::sqrt(pose->x*pose->x + pose->y*pose->y + pose->z*pose->z);
-        std::cout
-                <<"[6DOF]: [" << std::setw(8) << pose->timestamp << std::setw(4) << " s],"
-                << " fps=" << int(fps) << std::setprecision(5)
-                << " p=(" << pose->x << " " << pose->y << " " << pose->z
-                << " ), r=(" << pose->pitch << " " << pose->yaw << " " << pose->roll << " ), to origin(" << distance_to_origin << ")"
-                << ", Confidence= " << (int)pose->confidence << std::endl;
-    }
-}
 
 // Display the time and the 6 dof pose in the world coordinate frame using quaternion
 void show_pose_quaternion(xslam_pose_quaternion* pose)
@@ -104,30 +85,22 @@ void show_pose_quaternion(xslam_pose_quaternion* pose)
                 << " ), to origin(" << distance_to_origin << ")"
                 << ", Confidence= " << (int)pose->confidence << std::endl;
     }
+
+    //TODO add my msg there
+    nav_msgs::Odometry temp_msg;
+    temp_msg.header.frame_id = "odom";
+    temp_msg.header.stamp.fromSec(pose->timestamp);
+    temp_msg.child_frame_id = "xslam";
+    temp_msg.pose.pose.position.x = pose->x[0];
+    temp_msg.pose.pose.position.y = pose->x[0];
+    temp_msg.pose.pose.position.z = pose->x[0];
+    temp_msg.pose.pose.orientation.x = pose->quaternion[0];
+    temp_msg.pose.pose.orientation.y = pose->quaternion[1];
+    temp_msg.pose.pose.orientation.z = pose->quaternion[2];
+    temp_msg.pose.pose.orientation.w = pose->quaternion[3];
+    odom_pub.publish(temp_msg);
 }
 
-// Function to call for each IMU info
-void show_imu(xslam_imu* imu)
-{
-    static FrequencyCounter fc;
-    static int cnt = 0;
-
-    fc.tic();
-
-    if(cnt++ % 100 == 0)
-    {
-        std::cout
-                << "[IMU] : [" << std::setw(8) << imu->timestamp << std::setw(4) << " s],"
-                << " fps=" << int(fc.fps())
-                << " Gyro=(" << imu->gyro[0] << " " << imu->gyro[1] << " " << imu->gyro[2] << "),"
-                << " Accel=("  << imu->accel[0] << " " << imu->accel[1] << " " << imu->accel[2] << "),"
-                << " Magn=(" << imu->magn[0] << " " << imu->magn[1] << " " << imu->magn[2] << ")";
-        if( imu->temperature > 0 ){
-            std::cout << ", Temp=" << (imu->temperature - 273.15f);
-        }
-        std::cout << std::endl;
-    }
-}
 
 void lost(float timestamp)
 {
