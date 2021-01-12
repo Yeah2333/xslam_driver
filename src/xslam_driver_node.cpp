@@ -8,45 +8,48 @@
 #include <cmath>
 #include "frequency_counter.hpp"
 #include <nav_msgs/Odometry.h>
+#include <sensor_msgs/Image.h>
+#include <cv_bridge/cv_bridge.h>
+#include <image_transport/image_transport.h>
 #include <tf/tf.h>
 
-ros::Publisher odom_pub;
-
-void show_frame(xslam_frame*);
-
-
-// Display the time and the 6 dof pose in the world coordinate frame using quaternion
-void show_pose_quaternion(xslam_pose_quaternion* pose);
+#include <opencv2/highgui/highgui.hpp>
+#include <opencv2/imgproc/imgproc.hpp>
+#include <memory>
+cv::Mat rgbImage(xslam_rgb *rgb);
 
 
+std::string codec_name( xslam_rgb_codec codec );
+
+void pub_pose(xslam_pose_quaternion* pose);
+void pub_rgb(xslam_rgb* rgb);
 void lost(float timestamp);
 
-void xslam_odom_callback();
+
+ros::Publisher odom_pub;
+image_transport::Publisher image_pub;
 
 int main(int argc, char** argv) {
 
     ros::init(argc,argv,"xslam_node");
     ros::NodeHandle nh;
 
-    odom_pub = nh.advertise<nav_msgs::Odometry>("xslam/odom",10000);
-
-    xslam_parse_arguments(argc, argv);
-
-    // Replay mode using a recorded sequence : ./visual_odometry sequence_folder
-    if(argc==2)
-        xslam_set_replay_folder(argv[1]);
+    image_transport::ImageTransport it(nh);
+    image_pub = it.advertise("xslam/image", 100);
+    // image_pub = nh.advertise<sensor_msgs::Image>("xslam/image", 100);
+    odom_pub = nh.advertise<nav_msgs::Odometry>("xslam/odom", 10000);
 
     xslam_disp_version();
 
-
-    // set the function to call for each 6 dof pose with quaternion format
-    xslam_6dof_quaternion_callback(&show_pose_quaternion);
-
-    // set the lost callback
+    xslam_6dof_quaternion_callback(&pub_pose);
+    xslam_rgb_callback(&pub_rgb);
     xslam_lost_callback(&lost);
 
     // start visual odometry
     xslam_start_vo();
+    xslam_start_camera();
+    // RGB_640x480      RGB_1280x720        RGB_1920x1080
+    xslam_set_rgb_resolution( xslam_rgb_resolution::RGB_1920x1080);
 
     std::cout << " Press Enter to stop the process" << std::endl;
     std::cin.get();
@@ -57,16 +60,9 @@ int main(int argc, char** argv) {
 
     // free ressources
     return xslam_free() == xslam_status::failure ? EXIT_FAILURE : EXIT_SUCCESS;
-
-
-
 }
 
-void show_frame(xslam_frame*){}
-// Display the time and the 6 dof pose in the world coordinate frame
-
-// Display the time and the 6 dof pose in the world coordinate frame using quaternion
-void show_pose_quaternion(xslam_pose_quaternion* pose)
+void pub_pose(xslam_pose_quaternion* pose)
 {
     static FrequencyCounter fc;
     static int cnt = 0;
@@ -99,6 +95,50 @@ void show_pose_quaternion(xslam_pose_quaternion* pose)
     temp_msg.pose.pose.orientation.z = pose->quaternion[2];
     temp_msg.pose.pose.orientation.w = pose->quaternion[3];
     odom_pub.publish(temp_msg);
+}
+
+std::string codec_name( xslam_rgb_codec codec )
+{
+    switch( codec ){
+    case YUYV: return "YUYV";
+    case YUV420p: return "YUV420p";
+    case JPEG: return "JPEG";
+    }
+    return "unknown";
+}
+
+void pub_rgb(xslam_rgb* rgb)
+{
+    // rgb->codec = xslam_rgb_codec::JPEG;
+    cv::Mat image = rgbImage( rgb );
+	//将Mat类型转为sensor_msgs::Image
+	sensor_msgs::ImagePtr msg = cv_bridge::CvImage(std_msgs::Header(), "bgr8", image).toImageMsg();
+    msg->header.frame_id = "image";
+	//发布消息
+	image_pub.publish(msg);
+}
+cv::Mat rgbImage(xslam_rgb *rgb)
+{
+    cv::Mat out;
+    switch(rgb->codec){
+       case xslam_rgb_codec::YUYV:{
+           cv::Mat img( rgb->height, rgb->width, CV_8UC2, rgb->data );
+           cv::cvtColor( img, out, cv::COLOR_YUV2RGB_YUYV );
+           break;
+       }
+       case xslam_rgb_codec::YUV420p:{
+           cv::Mat img( static_cast<int>(1.5*rgb->height), rgb->width, CV_8UC1, rgb->data );
+           cv::cvtColor( img, out, cv::COLOR_YUV420p2RGB );
+           break;
+       }
+       case xslam_rgb_codec::JPEG:{
+           cv::Mat img( rgb->height, rgb->width, CV_8UC3, rgb->data );
+           out = cv::imdecode( img, cv::IMREAD_COLOR );
+           break;
+       }
+    }
+
+    return out;
 }
 
 

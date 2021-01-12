@@ -18,6 +18,8 @@ find_package(catkin REQUIRED COMPONENTS
         geometry_msgs
         tf
         eigen_conversions
+        cv_bridge
+        image_transport
         )
 
 SET( XSlamSDK_DIR ${CMAKE_CURRENT_SOURCE_DIR}/../ )
