@@ -1,0 +1,10 @@
+<?xml version="1.0"?>
+<launch>
+    
+    <node name="xslam_driver" pkg="xslam_driver" type="xslam_driver_node" output="screen" required="true"><!-- launch-prefix="valgrind" --> 
+
+
+    </node>
+
+
+</launch>
